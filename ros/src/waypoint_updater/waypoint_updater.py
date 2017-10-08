@@ -38,7 +38,7 @@ class WaypointUpdater(object):
 
         self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
 
-        # TODO: Add other member variables you need below
+        self.last_closest_waypoint = None 
 
         rospy.spin()
 
@@ -81,20 +81,33 @@ class WaypointUpdater(object):
             wp1 = i
         return dist
 
+    def get_heading(self, p1, p2):
+        return math.atan2(p2.y - p1.y, p2.x - p1.x)
+
     def get_closest_waypoint(self, pose):
         dl = lambda a, b: math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2  + (a.z-b.z)**2)
         tl = len(self.waypoints)
         min_dist = 1e10
-        closest_wp = 0
+        closest_wp = self.last_closest_waypoint if self.last_closest_waypoint is not None else 0
+        quaternion = (pose.orientation.x, pose.orientation.y, pose.orientation.z,
+                      pose.orientation.w)
+        euler = tf.transformations.euler_from_quaternion(quaternion)
+        yaw = euler[2]
+        
         for i in range(tl):
-            dist = dl(pose.position, self.waypoints[i].pose.pose.position) 
-            if dist < min_dist:
-                min_dist = dist
-                closest_wp = i
-        return closest_wp
+            idx = (i + closest_wp) % tl
+            dist = dl(pose.position, self.waypoints[idx].pose.pose.position) 
 
-    def get_heading(self, p1, p2):
-        return math.atan2(p2.y - p1.y, p2.x - p1.x)
+            heading = self.get_heading(pose.position, self.waypoints[idx].pose.pose.position)
+            angle = math.fabs(heading - yaw)
+            if angle < math.pi/4 and dist < 1.0:
+                min_dist = dist
+                closest_wp = idx
+                break
+            elif dist < min_dist:
+                min_dist = dist
+                closest_wp = idx
+        return closest_wp
 
     def get_next_waypoint(self, pose):
         cwp = self.get_closest_waypoint(pose)
@@ -106,6 +119,7 @@ class WaypointUpdater(object):
         angle = math.fabs(heading - yaw)
         if angle > math.pi/4:
             cwp = (cwp + 1) % len(self.waypoints)
+        self.last_closest_waypoint = cwp
         return cwp
         
 if __name__ == '__main__':
